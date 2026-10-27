@@ -36,7 +36,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 import type React from "react";
-import { type ModelCatalogEntry, type ModelSlotName, type ModelsSettings } from "@/src/core";
+import { type CatalogProvider, type ModelCatalogEntry, type ModelSlotName, type ModelsSettings } from "@/src/core";
 import { prettyModel } from "@/components/usage-format";
 import { ModelMenuList } from "@/components/settings/model-menu";
 import { MenuShell } from "@/components/menu-shell";
@@ -62,20 +62,21 @@ const SLOT_ORDER: readonly ModelSlotName[] = ["strong", "cheap", "vision"];
 /** The GET /api/models response fields the flow consumes. */
 interface ModelsBody {
 	models: ModelCatalogEntry[];
-	providers: { id: string; keyPresent: boolean }[];
+	providers: CatalogProvider[];
 	/** The three tiers' RESOLVED pins (BYOK: NULL per unset tier) — the
 	 *  PREFILL + "needed" marks (owner, 2026-09-22): pinned tiers open
 	 *  with their pick, unpinned tiers carry the mark. */
 	slots?: Record<ModelSlotName, { model: { provider: string; id: string }; thinkingLevel?: ThinkingLevel } | null>;
 }
 
-/** Pure: which stage the flow opens at — no keyed provider = keys first
- *  (owner's dependency ordering). Exported for tests. */
+/** Pure: keys first unless a provider is selectable. A reachable Ollama
+ *  with no compatible models enters the picker so its actionable local
+ *  status is shown instead of asking for an unrelated API key. */
 export function setupStage(
-	providers: { id: string; keyPresent: boolean }[] | null,
+	providers: Array<Pick<CatalogProvider, "id" | "keyPresent" | "local">> | null,
 ): "keys" | "pickers" {
-	if (providers === null) return "keys"; // fetch failed → the honest fallback
-	return providers.some((p) => p.keyPresent) ? "pickers" : "keys";
+	if (providers === null) return "keys";
+	return providers.some((p) => p.keyPresent || p.local?.state === "no-compatible-models") ? "pickers" : "keys";
 }
 
 /** Prefill (owner, BYOK wave 2026-09-22): each pinned tier opens with its
@@ -347,6 +348,7 @@ export function SetupDialog({
 
 	const stage = failed ? "keys" : setupStage(body ? body.providers : null);
 	const allPicked = SLOT_ORDER.every((s) => picked[s]);
+	const localIssue = body?.providers.find((provider) => provider.local && provider.local.state !== "ready")?.local;
 
 	/** Stage 1's save: PUT the pasted key, dispatch the keys signal, and
 	 *  CLEAN the local screen — the signal re-fetch widens the catalog and
@@ -427,6 +429,14 @@ export function SetupDialog({
 </Hint>
 				</header>
 
+				{localIssue && (
+					<p
+						data-testid="setup-local-provider-status"
+						className="mx-6 mt-5 rounded-sm border border-border bg-background px-3 py-2 text-xs text-muted-foreground"
+					>
+						{localIssue.message}
+					</p>
+				)}
 				{stage === "keys" ? (
 					<div className="flex flex-col px-6 py-5">
 						{failed ? (
@@ -527,7 +537,7 @@ export function SetupDialog({
 															}));
 															setOpenMenu(null);
 														}}
-														footer={catalog && catalog.length === 0 ? "No image-capable models. Add a provider key with access to a vision model." : undefined}
+														footer={catalog && catalog.length === 0 ? "No image-capable models. Connect a provider with access to a vision model." : undefined}
 													/>
 												</MenuShell>
 											)}

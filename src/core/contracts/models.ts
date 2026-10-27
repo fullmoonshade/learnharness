@@ -67,19 +67,24 @@ export interface ModelCatalogResponse {
 	 *  granularity; effectiveSettings().models verbatim, NULL per unset
 	 *  tier. */
 	slots: SlotPins;
-	/** Providers with a PRESENT key, and which env var gates each — the
-	 *  model slots wave's federation surface (2026-09-20): the picker lists
-	 *  models from these providers' pi-ai catalogs only. Keyless providers
-	 *  are simply absent (the Keys page is the discovery surface, same
-	 *  discipline as the search engines). */
+	/** Every model provider. Plain-key providers use keyPresent as before;
+	 *  keyless local providers also report their live connection state. */
 	providers: CatalogProvider[];
 }
 
-/** One row of the providers surface. */
+/** One row of the providers surface. `keyPresent` remains the common
+ *  availability gate consumed by existing setup and send guards. */
 export interface CatalogProvider {
 	id: string;
-	/** The env var whose presence federates this provider in. */
+	/** The env var whose presence federates this provider; empty for
+	 *  subscriptions and keyless local providers. */
 	envVar: string;
-	/** Whether that var is currently present (env or auth file). */
+	/** Whether the provider can currently supply selectable models. */
 	keyPresent: boolean;
+	/** Present only for a keyless local runtime such as Ollama. */
+	local?: {
+		endpoint: string;
+		state: "ready" | "unreachable" | "no-compatible-models";
+		message: string;
+	};
 }

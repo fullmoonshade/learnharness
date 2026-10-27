@@ -44,7 +44,7 @@ let host: HTMLDivElement | null = null;
 let closed = 0;
 let completed = 0;
 
-async function mount({ keyed = false, catalogFails = false } = {}) {
+async function mount({ keyed = false, catalogFails = false, localState }: { keyed?: boolean; catalogFails?: boolean; localState?: "unreachable" | "no-compatible-models" } = {}) {
 	closed = 0;
 	completed = 0;
 	globalThis.fetch = async (input, init) => {
@@ -54,7 +54,21 @@ async function mount({ keyed = false, catalogFails = false } = {}) {
 		assert.equal(path, "/api/models");
 		if (catalogFails) throw new Error("fixture catalog failure");
 		return Response.json({
-			providers: [{ ...provider, keyPresent: keyed }],
+			providers: [
+				{ ...provider, keyPresent: keyed },
+				...(localState ? [{
+					id: "ollama",
+					envVar: "",
+					keyPresent: false,
+					local: {
+						endpoint: "http://127.0.0.1:11434",
+						state: localState,
+						message: localState === "unreachable"
+							? "Ollama is not reachable at http://127.0.0.1:11434. Start Ollama or set OLLAMA_BASE_URL."
+							: "Ollama is running, but no installed model advertises tool calling with a usable context window.",
+					},
+				}] : []),
+			],
 			models: keyed ? [model] : [],
 			slots: { strong: null, cheap: null, vision: null },
 		});
@@ -175,7 +189,20 @@ describe("setup polish interactions", () => {
 	it("the empty vision list gives the approved next action without an em dash", async () => {
 		await mount({ keyed: true });
 		await click(element('[data-testid="setup-trigger-vision"]'));
-		assert.ok(element('[data-testid="setup-menu-vision"]').textContent?.includes("No image-capable models. Add a provider key with access to a vision model."));
+		assert.ok(element('[data-testid="setup-menu-vision"]').textContent?.includes("No image-capable models. Connect a provider with access to a vision model."));
+	});
+
+	it("shows actionable local-runtime status and keeps a reachable but incompatible Ollama in the model stage", async () => {
+		await mount({ localState: "unreachable" });
+		assert.match(element('[data-testid="setup-local-provider-status"]').textContent ?? "", /Start Ollama or set OLLAMA_BASE_URL/);
+		assert.ok(document.querySelector('[data-testid="setup-stage-keys"]'));
+		await act(async () => { root?.unmount(); });
+		root = null;
+		host?.remove();
+		host = null;
+		await mount({ localState: "no-compatible-models" });
+		assert.match(element('[data-testid="setup-local-provider-status"]').textContent ?? "", /no installed model advertises tool calling/);
+		assert.ok(document.querySelector('[data-testid="setup-stage-pickers"]'));
 	});
 
 	it("catalog failure uses the approved two-sentence error", async () => {

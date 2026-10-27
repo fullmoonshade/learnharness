@@ -23,11 +23,13 @@ import { piModels } from "../agent/models.ts";
 import { chatGPTConnected, chatGPTModel, chatGPTModels, refreshChatGPTModels } from "../agent/chatgpt-bridge.ts";
 import { NATIVE_SUBSCRIPTIONS } from "../core/contracts/subscriptions.ts";
 import { nativeSubscriptionId, nativeSubscriptionConnected, nativeSubscriptionModel, nativeSubscriptionModels, refreshSubscriptionModels } from "../agent/subscription-bridge.ts";
+import { ollamaStatus } from "../agent/ollama-provider.ts";
 
 export async function refreshConnectionCatalog(provider?: string): Promise<void> {
 	await Promise.all([
 		!provider || provider === "chatgpt" ? refreshChatGPTModels(piModels().getModels("openai").filter((m): m is Model<"openai-responses"> => m.api === "openai-responses")) : Promise.resolve(),
 		!provider || nativeSubscriptionId(provider) ? refreshSubscriptionModels() : Promise.resolve(),
+		!provider || provider === "ollama" ? piModels().refresh({ providers: ["ollama"], allowNetwork: true, force: true }) : Promise.resolve(),
 	]);
 }
 function connectionModel(provider: string, id: string): Model<Api> | undefined {
@@ -130,25 +132,32 @@ export function catalogSlots(): SlotPins {
 	return pins;
 }
 
-/** The providers surface (model slots wave, 2026-09-20): one row per
- *  plain-key model provider (core/auth-keys.ts's pi-ai-derived table),
- *  with keyPresent read env-wins through the keys seam, fresh per call —
- *  saving a key immediately federates the provider into the picker. */
+/** Provider availability for picker federation. Plain-key providers remain
+ *  env-gated; subscriptions use their live connection; Ollama is keyless
+ *  and becomes selectable only after live model discovery succeeds. */
 export function catalogProviders(): CatalogProvider[] {
-	return AUTH_PROVIDER_KEYS.map((p) => ({
-		id: p.id,
-		envVar: p.envVar,
-		keyPresent: keyValue(p.envVar) !== undefined,
-	})).concat([
+	const local = ollamaStatus();
+	const providers: CatalogProvider[] = [
+		...AUTH_PROVIDER_KEYS.map((p) => ({
+			id: p.id,
+			envVar: p.envVar,
+			keyPresent: keyValue(p.envVar) !== undefined,
+		})),
 		{ id: "chatgpt", envVar: "", keyPresent: chatGPTConnected() },
 		...NATIVE_SUBSCRIPTIONS.map((p) => ({ id: p.logicalId, envVar: "", keyPresent: nativeSubscriptionConnected(p.providerId) })),
-	]).sort((a, b) => a.id.localeCompare(b.id));
+		{
+			id: "ollama",
+			envVar: "",
+			keyPresent: local.state === "ready",
+			local,
+		},
+	];
+	return providers.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-/** The providers whose key is present — the picker federates exactly
- *  these (a keyless provider's models are unreachable by design; the
- *  Keys page is the discovery surface, same discipline as search). */
-function keyedProviderIds(): Set<string> {
+/** Providers currently able to supply selectable models: present API keys,
+ *  connected subscriptions, or a successful local-runtime discovery. */
+function availableProviderIds(): Set<string> {
 	return new Set(catalogProviders().filter((p) => p.keyPresent).map((p) => p.id));
 }
 
@@ -173,17 +182,17 @@ export function toModelDto(model: Model<Api>): ModelDto {
 }
 
 /** The live-limits index (context-meter amendment, owner 2026-09-23):
- *  provider:id → contextWindow from pi's catalog, over the SAME keyed
- *  providers the picker federates. The one source for every context
- *  meter's denominator — the stats-bar join holds /api/models' copy,
- *  and the activity feed (observability.ts) resolves job limits
- *  server-side through this. No hardcoded fallback exists anywhere:
- *  a model missing here reads limit-null (usage-only, honest render). */
+ *  provider:id → contextWindow from the SAME available providers the
+ *  picker federates. The one source for every context meter's denominator
+ *  — the stats-bar join holds /api/models' copy, and the activity feed
+ *  (observability.ts) resolves job limits server-side through this. No
+ *  hardcoded fallback exists anywhere: a model missing here reads
+ *  limit-null (usage-only, honest render). */
 export function catalogContextLimits(): Map<string, number> {
-	const keyed = keyedProviderIds();
+	const available = availableProviderIds();
 	const index = new Map<string, number>();
 	for (const provider of piModels().getProviders()) {
-		if (!keyed.has(provider.id)) continue;
+		if (!available.has(provider.id)) continue;
 		for (const model of piModels().getModels(provider.id)) {
 			index.set(`${provider.id}:${model.id}`, model.contextWindow);
 		}
@@ -197,10 +206,10 @@ export function catalogContextLimits(): Map<string, number> {
  *  defaults a settings-less chat runs + the background roles' resolved
  *  pins (the settings UI's per-role default captions). */
 export function modelCatalog(): ModelCatalogResponse {
-	const keyed = keyedProviderIds();
+	const available = availableProviderIds();
 	const models = piModels()
 		.getProviders()
-		.filter((p) => keyed.has(p.id))
+		.filter((p) => available.has(p.id))
 		.flatMap((p) => piModels().getModels(p.id))
 		.map(toModelDto)
 		.sort((a, b) => (a.provider === b.provider ? a.id.localeCompare(b.id) : a.provider.localeCompare(b.provider)))

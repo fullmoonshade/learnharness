@@ -158,10 +158,12 @@ describe("prefillLevelFromPin — the setup dialog's level prefill (chunk 2)", (
 	});
 });
 
-describe("setupStage — unchanged by the BYOK wave", () => {
-	it("keys first (owner ordering), pickers when a provider is keyed", () => {
+describe("setupStage — key and local-provider ordering", () => {
+	it("shows keys first, pickers for available providers, and local remediation in the useful stage", () => {
 		assert.equal(setupStage(null), "keys");
 		assert.equal(setupStage([{ id: "x", keyPresent: false }]), "keys");
 		assert.equal(setupStage([{ id: "x", keyPresent: true }]), "pickers");
+		assert.equal(setupStage([{ id: "ollama", keyPresent: false, local: { endpoint: "http://localhost:11434", state: "unreachable", message: "offline" } }]), "keys");
+		assert.equal(setupStage([{ id: "ollama", keyPresent: false, local: { endpoint: "http://localhost:11434", state: "no-compatible-models", message: "no models" } }]), "pickers");
 	});
 });
