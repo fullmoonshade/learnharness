@@ -60,7 +60,7 @@ docker buildx build \
   --push .
 ```
 
-`.github/workflows/container.yml` publishes version, major/minor, commit, and `latest` tags for future `v*` tags. It attaches provenance and an SBOM. The GHCR package must be public for anonymous pulls; otherwise recipients must authenticate with `read:packages` access.
+`.github/workflows/container.yml` publishes version, major/minor, commit, and `latest` tags for future `v*` releases. A dedicated `container-<tag>` Git tag publishes `<tag>` plus the rolling `ollama` tag without starting the desktop release workflow. Manual dispatch accepts an explicit image tag. Every route attaches provenance and an SBOM. The GHCR package must be public for anonymous pulls; otherwise recipients must authenticate with `read:packages` access.
 
 ## Image design
 
