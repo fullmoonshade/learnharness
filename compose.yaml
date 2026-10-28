@@ -1,0 +1,17 @@
+services:
+  learnharness:
+    image: ghcr.io/fullmoonshade/learnharness:0.3.8-ollama
+    container_name: learnharness
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MAX_TOKENS: "8192"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - learnharness-state:/var/lib/learnharness
+
+volumes:
+  learnharness-state:

@@ -1,0 +1,16 @@
+.git
+.next
+node_modules
+dist
+data
+.fresh-data
+
+.env
+.env.*
+auth.json
+chatgpt-credentials.json*
+github-copilot-credentials.json*
+xai-credentials.json*
+
+*.log
+*.tsbuildinfo
